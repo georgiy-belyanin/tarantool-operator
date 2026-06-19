@@ -16,7 +16,9 @@ spec:
   selector:
     matchLabels:
       control-plane: controller-manager
-  replicas: 1
+  # Two replicas for control-plane HA; --leader-elect (below) ensures only one is
+  # active at a time, so they never act concurrently.
+  replicas: 2
   template:
     metadata:
       annotations:

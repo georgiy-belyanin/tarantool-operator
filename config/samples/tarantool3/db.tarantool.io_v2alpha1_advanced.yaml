@@ -1,0 +1,240 @@
+# Advanced example: one cluster combining the operator's application-platform
+# features —
+#
+#   * multiple replica sets in two groups: "routers" (an application ROLE) and
+#     "storages" (two replica sets running a Lua APP via app.file);
+#   * election failover, 3 instances per replica set (a majority — 2 of 3 —
+#     elects reliably at fresh bootstrap; avoid 2-instance election sets);
+#   * credentials from a Secret: a replication user that also carries "super",
+#     which additionally lets the operator observe the elected leader
+#     (ReplicaSet.status.leader) and hot-reload config over iproto;
+#   * user code mounted from ConfigMaps (no custom image needed) and made
+#     requireable via LUA_PATH;
+#   * persistent volumes for the storage tier.
+#
+# No sharding here: the community tarantool/tarantool:3 image does not bundle
+# vshard (see ABOUT.md "Image requirements"); add sharding roles only with a
+# vshard-enabled image.
+#
+#   kubectl apply -f db.tarantool.io_v2alpha1_advanced.yaml
+---
+# Passwords live in a Secret named by spec.credentialsSecret (key = user name).
+# (Shown inline to keep the example runnable — use your secret tooling in prod.)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: advanced-creds
+type: Opaque
+stringData:
+  replicator: replicator-secret
+---
+# Application ROLE for the "routers" group: a Lua module implementing the
+# Tarantool 3 role contract (validate/apply/stop). It receives its settings from
+# config.roles_cfg and seeds its schema via box.watch — under election failover
+# apply() runs before leadership settles, so direct DDL in apply() would fail on
+# read-only replicas; the watcher fires once the instance becomes writable.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: advanced-role-code
+data:
+  api.lua: |
+    local greeting
+
+    local function apply(conf)
+        conf = conf or {}
+        greeting = conf.greeting or 'hello'
+
+        -- Public function exposed by the role.
+        rawset(_G, 'api_greet', function(who)
+            return greeting .. ', ' .. (who or 'world')
+        end)
+
+        -- Seed schema once this instance is writable (the elected leader).
+        box.watch('box.status', function(_, status)
+            if status.is_ro == false and box.space.greetings == nil then
+                local s = box.schema.space.create('greetings', {if_not_exists = true})
+                s:format({{name = 'id', type = 'unsigned'}, {name = 'msg', type = 'string'}})
+                s:create_index('pk', {parts = {'id'}, if_not_exists = true})
+                s:replace({1, greeting})
+            end
+        end)
+    end
+
+    return {
+        validate = function() end,
+        apply = apply,
+        stop = function() end,
+        dependencies = {},
+    }
+---
+# Lua APP for the "storages" group, loaded via app.file (per-replica-set
+# spec.config). Same box.watch pattern for leader-only schema setup.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: advanced-app-code
+data:
+  init.lua: |
+    box.watch('box.status', function(_, status)
+        if status.is_ro == false and box.space.items == nil then
+            local s = box.schema.space.create('items', {if_not_exists = true})
+            s:format({{name = 'id', type = 'unsigned'}, {name = 'name', type = 'string'}})
+            s:create_index('pk', {parts = {'id'}, if_not_exists = true})
+        end
+    end)
+
+    function _G.put_item(id, name)
+        return box.space.items:replace({id, name})
+    end
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: advanced
+spec:
+  # Secret holding user passwords (key = user name); the operator injects them
+  # into the delivered config.
+  credentialsSecret: advanced-creds
+  # Cluster-wide passthrough config (operator-managed keys win on conflict).
+  config:
+    credentials:
+      users:
+        # Used for replication between instances; "super" additionally lets the
+        # operator read box.info (status.leader) and drive config:reload().
+        replicator:
+          roles: [replication, super]
+    replication:
+      failover: election
+    log:
+      level: 5
+    memtx:
+      memory: 134217728 # 128 MiB per instance
+---
+# Group "routers": one replica set running the application role.
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: advanced-router
+spec:
+  clusterName: advanced
+  group: routers
+  replicas: 3
+  config:
+    roles:
+      - api
+    roles_cfg:
+      api:
+        greeting: hello-from-advanced
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tarantool
+        app.kubernetes.io/component: router
+    spec:
+      containers:
+        - name: tarantool
+          image: tarantool/tarantool:3
+          env:
+            - name: LUA_PATH # make the mounted role module require-able
+              value: /opt/roles/?.lua;;
+          ports:
+            - name: iproto
+              containerPort: 3301
+          resources:
+            requests: { cpu: 250m, memory: 192Mi }
+          volumeMounts:
+            - name: role-code
+              mountPath: /opt/roles
+      volumes:
+        - name: role-code
+          configMap:
+            name: advanced-role-code
+---
+# Group "storages": two replica sets running the Lua app, with persistent
+# volumes for snapshots/WAL.
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: advanced-storage-001
+spec:
+  clusterName: advanced
+  group: storages
+  replicas: 3
+  config:
+    app:
+      file: /opt/app/init.lua
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tarantool
+        app.kubernetes.io/component: storage
+    spec:
+      containers:
+        - name: tarantool
+          image: tarantool/tarantool:3
+          ports:
+            - name: iproto
+              containerPort: 3301
+          resources:
+            requests: { cpu: 250m, memory: 192Mi }
+          volumeMounts:
+            - name: app-code
+              mountPath: /opt/app
+            - name: data
+              mountPath: /var/lib/tarantool
+      volumes:
+        - name: app-code
+          configMap:
+            name: advanced-app-code
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: advanced-storage-002
+spec:
+  clusterName: advanced
+  group: storages
+  replicas: 3
+  config:
+    app:
+      file: /opt/app/init.lua
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tarantool
+        app.kubernetes.io/component: storage
+    spec:
+      containers:
+        - name: tarantool
+          image: tarantool/tarantool:3
+          ports:
+            - name: iproto
+              containerPort: 3301
+          resources:
+            requests: { cpu: 250m, memory: 192Mi }
+          volumeMounts:
+            - name: app-code
+              mountPath: /opt/app
+            - name: data
+              mountPath: /var/lib/tarantool
+      volumes:
+        - name: app-code
+          configMap:
+            name: advanced-app-code
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 1Gi

@@ -2,88 +2,19 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: manager-role
 rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
   - endpoints
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
+  - events
   - persistentvolumeclaims
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - persistentvolumes
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - pods
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - pods/exec
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - pods/logs
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - secrets
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - services
   verbs:
   - create
@@ -92,6 +23,15 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  - pods/logs
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - apps
@@ -106,9 +46,10 @@ rules:
   - update
   - watch
 - apiGroups:
-  - ""
+  - db.tarantool.io
   resources:
-  - configmaps
+  - clusters
+  - replicasets
   verbs:
   - create
   - delete
@@ -118,9 +59,25 @@ rules:
   - update
   - watch
 - apiGroups:
-  - ""
+  - db.tarantool.io
   resources:
-  - events
+  - clusters/finalizers
+  - replicasets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - db.tarantool.io
+  resources:
+  - clusters/status
+  - replicasets/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
   verbs:
   - create
   - delete
@@ -133,6 +90,8 @@ rules:
   - tarantool.io
   resources:
   - cartridgeconfigs
+  - clusters
+  - roles
   verbs:
   - create
   - delete
@@ -151,45 +110,7 @@ rules:
   - tarantool.io
   resources:
   - cartridgeconfigs/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - tarantool.io
-  resources:
-  - clusters
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - tarantool.io
-  resources:
   - clusters/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - tarantool.io
-  resources:
-  - roles
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - tarantool.io
-  resources:
   - roles/status
   verbs:
   - get

@@ -1,0 +1,39 @@
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: example
+spec:
+  # DNS domain of the Kubernetes cluster, used to build stable instance URIs.
+  domain: cluster.local
+  # Secret (same namespace) holding user passwords: each data key is a user
+  # name declared under config.credentials.users, the value its password. The
+  # operator injects the passwords into the delivered config so they never
+  # appear in this CR.
+  credentialsSecret: example-tarantool-credentials
+  # Arbitrary Tarantool 3 config merged into the global scope. Operator-managed
+  # keys (topology, credentials passwords, iproto.advertise) win on conflict.
+  config:
+    credentials:
+      users:
+        # Internal user used for replication between instances.
+        replicator:
+          roles: [replication]
+        # User used by vshard for storage/router communication.
+        storage:
+          roles: [sharding]
+    log:
+      level: 5
+    memtx:
+      memory: 268435456  # 256 MiB
+---
+# The Secret referenced by spec.credentialsSecret above (key = user name).
+# Shown here for a runnable example only — manage real passwords with your
+# secret tooling.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: example-tarantool-credentials
+type: Opaque
+stringData:
+  replicator: replicator-secret
+  storage: storage-secret

@@ -15,7 +15,7 @@ resources:
   domain: tarantool.io
   group: tarantool.io
   kind: Cluster
-  path: github.com/tarantool/tarantool-operator/api/v1alpha1
+  path: github.com/tarantool/tarantool-operator/apis/cartridge/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -24,7 +24,7 @@ resources:
   domain: tarantool.io
   group: tarantool.io
   kind: ReplicasetTemplate
-  path: github.com/tarantool/tarantool-operator/api/v1alpha1
+  path: github.com/tarantool/tarantool-operator/apis/cartridge/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -33,21 +33,21 @@ resources:
   domain: tarantool.io
   group: tarantool.io
   kind: Role
-  path: github.com/tarantool/tarantool-operator/api/v1alpha1
+  path: github.com/tarantool/tarantool-operator/apis/cartridge/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   domain: tarantool.io
   kind: Cluster
-  path: github.com/tarantool/tarantool-operator/apis/v1beta1
+  path: github.com/tarantool/tarantool-operator/apis/cartridge/v1beta1
   version: v1beta1
 - api:
     crdVersion: v1
     namespaced: true
   domain: tarantool.io
   kind: Role
-  path: github.com/tarantool/tarantool-operator/apis/v1beta1
+  path: github.com/tarantool/tarantool-operator/apis/cartridge/v1beta1
   version: v1beta1
 - api:
     crdVersion: v1
@@ -55,7 +55,7 @@ resources:
   controller: true
   domain: tarantool.io
   kind: FailoverConfig
-  path: github.com/tarantool/tarantool-operator/apis/v1beta1
+  path: github.com/tarantool/tarantool-operator/apis/cartridge/v1beta1
   version: v1beta1
 - api:
     crdVersion: v1
@@ -63,6 +63,24 @@ resources:
   controller: true
   domain: tarantool.io
   kind: CartridgeConfig
-  path: github.com/tarantool/tarantool-operator/apis/v1beta1
+  path: github.com/tarantool/tarantool-operator/apis/cartridge/v1beta1
   version: v1beta1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: tarantool.io
+  group: db.tarantool.io
+  kind: Cluster
+  path: github.com/tarantool/tarantool-operator/apis/v2alpha1
+  version: v2alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: tarantool.io
+  group: db.tarantool.io
+  kind: ReplicaSet
+  path: github.com/tarantool/tarantool-operator/apis/v2alpha1
+  version: v2alpha1
 version: "3"

@@ -1,0 +1,79 @@
+# Application-roles example: a single-instance, unsharded cluster that enables a
+# declarative Tarantool 3 application role (spec.roles) and configures it
+# (config.roles_cfg). This is the analog of a Cartridge cluster role,
+# but declared rather than joined at runtime.
+#
+# Unlike app.file (which loads one entry-point script), a *role* is a Lua module
+# implementing the role contract (validate/apply/stop) that Tarantool enables and
+# reconfigures declaratively. The module must be importable by `require` — either
+# baked into the image or, as here, mounted from a ConfigMap with LUA_PATH
+# pointing at it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: greeter-role
+data:
+  # A minimal application role. Tarantool calls validate() with the role's config
+  # from roles_cfg, then apply(); stop() runs when the role is disabled.
+  greeter.lua: |
+    local log = require('log')
+    return {
+        validate = function(cfg)
+            assert(type(cfg) == 'table', 'greeter: config must be a table')
+            assert(cfg.greeting ~= nil, 'greeter: greeting is required')
+        end,
+        apply = function(cfg)
+            rawset(_G, 'greeter_greeting', cfg.greeting)
+            log.info('greeter role applied: %s', cfg.greeting)
+        end,
+        stop = function()
+            rawset(_G, 'greeter_greeting', nil)
+        end,
+    }
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: approles
+spec:
+  config: {}
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: approles-storage
+spec:
+  clusterName: approles
+  replicas: 1
+  # Tarantool config at this replica set's scope: enable the application role
+  # and pass its per-role configuration.
+  config:
+    roles:
+      - greeter
+    roles_cfg:
+      greeter:
+        greeting: "hello from kubernetes"
+  podTemplate:
+    spec:
+      containers:
+        - name: tarantool
+          image: tarantool/tarantool:3
+          env:
+            # Make `require('greeter')` resolve the mounted module. Alternatively,
+            # bake the role into a custom image and drop this mount + env.
+            - name: LUA_PATH
+              value: "/roles/?.lua;;"
+          ports:
+            - name: iproto
+              containerPort: 3301
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+          volumeMounts:
+            - name: roles
+              mountPath: /roles
+      volumes:
+        - name: roles
+          configMap:
+            name: greeter-role

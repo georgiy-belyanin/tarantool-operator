@@ -26,3 +26,6 @@ config/tarantool.io_*.yaml
 *~
 
 *.DS_Store
+
+# Local Tarantool source checkout (MVP build context); not part of the module.
+/tarantool/

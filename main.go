@@ -4,8 +4,10 @@ import (
 	"flag"
 	"os"
 
-	"github.com/tarantool/tarantool-operator/apis/v1beta1"
-	"github.com/tarantool/tarantool-operator/controllers"
+	"github.com/tarantool/tarantool-operator/apis/cartridge/v1beta1"
+	"github.com/tarantool/tarantool-operator/apis/v2alpha1"
+	"github.com/tarantool/tarantool-operator/controllers/cartridge"
+	"github.com/tarantool/tarantool-operator/controllers/tarantool3"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -26,6 +28,7 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1beta1.AddToScheme(scheme))
+	utilruntime.Must(v2alpha1.AddToScheme(scheme))
 }
 
 func main() {
@@ -41,8 +44,11 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 
+	// Default to production logging (JSON, sampling, stacktraces at error level).
+	// Override at runtime with the standard zap flags, e.g. --zap-devel for
+	// human-readable development logs.
 	opts := zap.Options{
-		Development: true,
+		Development: false,
 	}
 
 	opts.BindFlags(flag.CommandLine)
@@ -89,6 +95,16 @@ func main() {
 	cartridgeConfigReconciler := controllers.NewCartridgeConfigReconciler(mgr)
 	if err = cartridgeConfigReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CartridgeConfig")
+		os.Exit(1)
+	}
+
+	// Tarantool 3 (db.tarantool.io/v2alpha1) controllers.
+	if err = tarantool3.NewClusterReconciler(mgr).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Cluster", "group", "db.tarantool.io")
+		os.Exit(1)
+	}
+	if err = tarantool3.NewReplicaSetReconciler(mgr).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ReplicaSet", "group", "db.tarantool.io")
 		os.Exit(1)
 	}
 

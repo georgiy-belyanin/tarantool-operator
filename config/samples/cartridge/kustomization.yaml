@@ -1,0 +1,10 @@
+## Legacy Tarantool 2 / Cartridge samples (tarantool.io API group).
+## Kept for the deprecated Cartridge operator during the migration to the
+## Tarantool 3 db.tarantool.io/v2alpha1 API. See AGENTS.md.
+resources:
+- tarantool.io_v1alpha1_cluster.yaml
+- tarantool.io_v1alpha1_replicasettemplate.yaml
+- tarantool.io_v1alpha1_role.yaml
+- tarantool.io_v1beta1_cluster.yaml
+- tarantool.io_v1beta1_role.yaml
+- tarantool.io_v1beta1_cartridgeconfig.yaml
