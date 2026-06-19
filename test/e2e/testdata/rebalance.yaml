@@ -1,0 +1,102 @@
+# vshard rebalance e2e fixture: a sharded cluster on the tarantool-vshard image
+# (bundles vshard) — one router and two single-instance storage replica sets,
+# each weight 1, bucket_count 100. Manual failover makes each storage its own
+# writable leader (deterministic local bootstrap). The test bootstraps buckets,
+# adds a third storage (rebalance.add.yaml) and watches vshard rebalance, then
+# drains it (weight 0) and removes it.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shard-creds
+type: Opaque
+stringData:
+  replicator: r-secret
+  storage: s-secret
+  admin: a-secret
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: shard
+spec:
+  credentialsSecret: shard-creds
+  config:
+    credentials:
+      users:
+        replicator:
+          roles: [replication]
+        storage:
+          roles: [sharding]
+        admin:
+          roles: [super]
+    replication:
+      failover: manual
+    sharding:
+      bucket_count: 100
+    memtx:
+      memory: 134217728
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: router-a
+spec:
+  clusterName: shard
+  group: routers
+  replicas: 1
+  config:
+    sharding:
+      roles: [router]
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool-vshard:3
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: iproto
+          containerPort: 3301
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: storage-a
+spec:
+  clusterName: shard
+  group: storages
+  replicas: 1
+  config:
+    sharding:
+      roles: [storage]
+      weight: 1
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool-vshard:3
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: iproto
+          containerPort: 3301
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: storage-b
+spec:
+  clusterName: shard
+  group: storages
+  replicas: 1
+  config:
+    sharding:
+      roles: [storage]
+      weight: 1
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool-vshard:3
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: iproto
+          containerPort: 3301

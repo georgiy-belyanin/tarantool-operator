@@ -1,0 +1,53 @@
+# Dead-minion remediation e2e fixture (F3): a 3-instance election replica set
+# spread across worker nodes (preferred anti-affinity), so stopping one worker
+# strands exactly one instance. Election failover gives automatic leadership
+# recovery; the operator force-deletes the stranded pod and the StatefulSet
+# reschedules it onto a surviving worker, where it rejoins from the leader.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: nl-creds
+type: Opaque
+stringData:
+  replicator: r-secret
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: nl
+spec:
+  credentialsSecret: nl-creds
+  config:
+    credentials:
+      users:
+        replicator:
+          roles: [replication]
+    memtx:
+      memory: 67108864
+    log:
+      level: 4
+    replication:
+      failover: election
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: nl-rs
+spec:
+  clusterName: nl
+  replicas: 3
+  podTemplate:
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                tarantool.io/replicaset: nl-rs
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301

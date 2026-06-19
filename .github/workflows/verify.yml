@@ -1,0 +1,25 @@
+name: Verify
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  generated:
+    name: generated files up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Verify generated manifests and code
+        run: make verify
+      - name: go vet
+        run: go vet ./...

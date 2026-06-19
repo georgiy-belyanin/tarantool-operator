@@ -1,0 +1,33 @@
+name: Cartridge (legacy) tests
+
+# Verifies the legacy Tarantool 2 / Cartridge operator (tarantool.io/v1beta1).
+# These packages live under */cartridge/* and use fake clients + mocks, so they
+# need no envtest control-plane binaries. Kept as a separate workflow so the
+# deprecated Cartridge path stays green independently of the Tarantool 3 work.
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    name: cartridge unit tests (tarantool.io/v1beta1)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Run Cartridge tests
+        run: |
+          go test -coverprofile cover.out \
+            ./apis/cartridge/... \
+            ./controllers/cartridge/... \
+            ./internal/cartridge/... \
+            ./pkg/cartridge/...

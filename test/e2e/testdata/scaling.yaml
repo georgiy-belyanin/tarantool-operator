@@ -1,0 +1,59 @@
+# Scaling e2e fixture: a single replica set with a fixed (manual) leader and
+# persistent storage, so the test can grow/shrink the instance count
+# deterministically. The test patches spec.replicas at runtime.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: scale-creds
+type: Opaque
+stringData:
+  replicator: r-secret
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: scale
+spec:
+  credentialsSecret: scale-creds
+  # This suite runs the operator OUT-of-cluster, which cannot reach pod iproto
+  # to hot-reload. Disable the built-in super user so topology changes are
+  # delivered by rolling the pods (the no-super-user path this suite
+  # exercises); reload-driven scale-in is covered by kind-persistence.sh.
+  disableOperatorUser: true
+  config:
+    credentials:
+      users:
+        replicator:
+          roles: [replication]
+    replication:
+      failover: manual
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: scale-rs
+spec:
+  clusterName: scale
+  replicas: 1
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301
+        volumeMounts:
+        - name: data
+          mountPath: "/var/lib/tarantool"
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 256Mi
+  config:
+    leader: scale-rs-0

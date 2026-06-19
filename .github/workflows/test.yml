@@ -1,4 +1,4 @@
-name: Unit tests
+name: Tarantool 3 operator — unit tests
 
 on:
   push:
@@ -10,14 +10,25 @@ on:
 
 jobs:
   test:
-    name: unit testing
+    name: unit tests (db.tarantool.io/v2alpha1)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
-      - name: Set up Go 1.20.6
-        uses: actions/setup-go@v3
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.20.6
-      - name: Test
-        run: go test ./... -coverprofile cover.out
+          go-version: "1.25"
+      # The reconcile suite (controllers/tarantool3) runs against a real
+      # apiserver+etcd via envtest; it self-skips unless KUBEBUILDER_ASSETS is
+      # set. Provision the control-plane binaries the same way `make test` does.
+      - name: Install envtest control-plane binaries
+        run: |
+          go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+          echo "KUBEBUILDER_ASSETS=$($(go env GOPATH)/bin/setup-envtest use 1.31.0 -p path)" >> "$GITHUB_ENV"
+      - name: Run Tarantool 3 operator unit + envtest tests
+        run: |
+          go test -coverprofile cover.out \
+            ./apis/v2alpha1/... \
+            ./pkg/clusterconfig/... \
+            ./controllers/tarantool3/...

@@ -1,0 +1,41 @@
+name: Tarantool 3 operator — samples
+
+# Tests the shipped samples (config/samples):
+#   * render-validates every samples kustomization (tarantool3 + cartridge);
+#   * applies each sample runnable on the stock community tarantool/tarantool:3
+#     image to a kind cluster and asserts it converges (StatefulSets fully
+#     ready), then deletes it — minimal, replicated, roles, advanced.
+# The sharded trio and the metrics sample are render-validated only: they need a
+# vshard-/metrics-export-capable image (and, for metrics, the Prometheus
+# Operator CRDs) — see ABOUT.md "Image requirements".
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  samples:
+    name: samples (kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Install kind
+        run: |
+          curl -fsSLo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+      - name: Test the samples
+        run: make test-e2e-samples

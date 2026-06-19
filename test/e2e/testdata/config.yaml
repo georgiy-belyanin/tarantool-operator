@@ -1,0 +1,64 @@
+# Config-propagation e2e fixture: a two-instance replica set (manual leader +
+# persistent storage) with initial passthrough config values. The test patches
+# spec.config at runtime and verifies every instance picks up the new values.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cfg-creds
+type: Opaque
+stringData:
+  replicator: r-secret
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: cfg
+spec:
+  credentialsSecret: cfg-creds
+  # This suite runs the operator OUT-of-cluster, which cannot reach pod iproto
+  # to hot-reload. Disable the built-in super user so the operator falls back
+  # to delivering config changes by rolling the pods (the no-super-user path
+  # this suite exercises); the in-cluster hot-reload path is covered by
+  # kind-reload.sh and kind-persistence.sh.
+  disableOperatorUser: true
+  config:
+    credentials:
+      users:
+        replicator:
+          roles: [replication]
+    memtx:
+      memory: 268435456
+    log:
+      level: 5
+    replication:
+      failover: manual
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: cfg-rs
+spec:
+  clusterName: cfg
+  replicas: 2
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301
+        volumeMounts:
+        - name: data
+          mountPath: "/var/lib/tarantool"
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 256Mi
+  config:
+    leader: cfg-rs-0

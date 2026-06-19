@@ -1,0 +1,64 @@
+# Long-lasting load+churn e2e fixture: a single replicated ELECTION replica set
+# (3 instances, persistent storage, a super user). Election keeps a quorum while
+# instances roll, so the cluster keeps serving while it is scaled and reconfigured
+# under load. Sharding scale-out/in is covered separately by kind-rebalance.sh —
+# this test is about instance scaling + RAM under continuous writes, so it needs
+# no vshard (stock image).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: load-creds
+type: Opaque
+stringData:
+  replicator: r-secret
+  admin: a-secret
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: load
+spec:
+  credentialsSecret: load-creds
+  config:
+    credentials:
+      users:
+        replicator:
+          roles: [replication]
+        admin:
+          roles: [super]
+    replication:
+      failover: election
+      # Pin the synchronous quorum so sync commits need a fixed 2 acks regardless
+      # of how many instances are joining/rolling — membership changes under load
+      # must not stall commits or block new instances from catching up.
+      synchro_quorum: 2
+    memtx:
+      memory: 67108864 # 64 MiB; bumped up (grow-only) during the test
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: load-rs
+spec:
+  clusterName: load
+  replicas: 3
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: iproto
+          containerPort: 3301
+        volumeMounts:
+        - name: data
+          mountPath: "/var/lib/tarantool"
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: [ReadWriteOnce]
+      resources:
+        requests:
+          storage: 256Mi

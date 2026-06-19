@@ -1,0 +1,45 @@
+# Degraded-phase e2e fixture: a 2-instance manual-failover replica set. The test
+# verifies the phase story: Configuring (never Degraded) during startup, Ready
+# once both instances are up, Degraded — not Configuring — after the test wedges
+# one instance's TX thread (alive but unresponsive), and Ready again after the
+# stuck pod is recreated. Manual failover pins the leader to degr-rs-0, so the
+# test can safely wedge the replica degr-rs-1.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: degr-creds
+type: Opaque
+stringData:
+  replicator: r-secret
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: degr
+spec:
+  credentialsSecret: degr-creds
+  config:
+    credentials:
+      users:
+        replicator:
+          roles: [replication]
+    replication:
+      failover: manual
+    memtx:
+      memory: 134217728
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: degr-rs
+spec:
+  clusterName: degr
+  replicas: 2
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301

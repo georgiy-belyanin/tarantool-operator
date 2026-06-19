@@ -1,0 +1,67 @@
+# Cartridge side of the coexistence test (legacy tarantool.io/v1beta1). The
+# operator always bootstraps vshard, so the topology is a vshard-storage replica
+# set carrying the shared kv role + a vshard-router replica set. Roles bind to
+# the Cluster via the tarantool.io/cluster-name label.
+apiVersion: tarantool.io/v1beta1
+kind: Cluster
+metadata:
+  name: cart
+spec:
+  domain: cluster.local
+  listenPort: 3301
+  failover:
+    mode: disabled
+---
+apiVersion: tarantool.io/v1beta1
+kind: Role
+metadata:
+  name: storage
+  labels:
+    tarantool.io/cluster-name: cart
+spec:
+  replicasets: 1
+  allRw: true
+  vshard:
+    clusterRoles: [vshard-storage, app.roles.kv]
+    vshardGroupName: default
+    weight: 1
+  replicasetTemplate:
+    replicas: 1
+    updateStrategy:
+      type: RollingUpdate
+    podTemplate:
+      spec:
+        containers:
+        - name: tarantool
+          image: cartridge-kv:2
+          imagePullPolicy: IfNotPresent
+          ports:
+          - {name: app, containerPort: 3301}
+          - {name: http, containerPort: 8081}
+---
+apiVersion: tarantool.io/v1beta1
+kind: Role
+metadata:
+  name: router
+  labels:
+    tarantool.io/cluster-name: cart
+spec:
+  replicasets: 1
+  allRw: false
+  vshard:
+    clusterRoles: [vshard-router]
+    vshardGroupName: default
+    weight: 1
+  replicasetTemplate:
+    replicas: 1
+    updateStrategy:
+      type: RollingUpdate
+    podTemplate:
+      spec:
+        containers:
+        - name: tarantool
+          image: cartridge-kv:2
+          imagePullPolicy: IfNotPresent
+          ports:
+          - {name: app, containerPort: 3301}
+          - {name: http, containerPort: 8081}

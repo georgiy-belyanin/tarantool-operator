@@ -1,0 +1,121 @@
+# Large-topology e2e fixture: ~10 instances across 2 groups and 5 replica sets.
+#
+#   group "routers":  router-001            (2 instances)
+#   group "storages": storage-001..004      (4 x 2 = 8 instances)
+#   total: 10 instances, 5 replica sets, 2 groups.
+#
+# No sharding roles (the community image lacks vshard), so these are plain
+# replicated replica sets — enough to exercise multi-group / multi-replicaset
+# topology rendering and formation. Election failover so each 2-instance replica
+# set forms a real replicated set (Raft-elected leader); a small memtx keeps 10
+# instances light on a single kind node.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: big-creds
+type: Opaque
+stringData:
+  replicator: r-secret
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: big
+spec:
+  credentialsSecret: big-creds
+  config:
+    credentials:
+      users:
+        replicator:
+          roles: [replication]
+    memtx:
+      memory: 67108864
+    log:
+      level: 4
+    replication:
+      failover: election
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: router-001
+spec:
+  clusterName: big
+  group: routers
+  replicas: 2
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: storage-001
+spec:
+  clusterName: big
+  group: storages
+  replicas: 2
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: storage-002
+spec:
+  clusterName: big
+  group: storages
+  replicas: 2
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: storage-003
+spec:
+  clusterName: big
+  group: storages
+  replicas: 2
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: storage-004
+spec:
+  clusterName: big
+  group: storages
+  replicas: 2
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301

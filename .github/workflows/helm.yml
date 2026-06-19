@@ -1,0 +1,73 @@
+# Validates the Helm charts: lint + template (structural), then a kind-based
+# e2e that installs the tarantool3-operator chart and proves the deployment it
+# produces actually operates a Tarantool 3 cluster (CRDs, RBAC, leader
+# election, hot reload, upgrade, uninstall). Helm is not runnable in
+# restricted local environments, so this workflow is the chart's test gate.
+name: helm
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "helm-charts/**"
+      - "test/e2e/kind-helm.sh"
+      - ".github/workflows/helm.yml"
+  pull_request:
+    paths:
+      - "helm-charts/**"
+      - "test/e2e/kind-helm.sh"
+      - ".github/workflows/helm.yml"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+
+      - name: helm lint
+        run: |
+          # --with-subcharts not needed: charts are independent. The legacy
+          # charts are deprecated; lint still validates their structure.
+          for chart in helm-charts/charts/*/; do
+            helm lint "$chart"
+          done
+
+      - name: helm template (default values must render)
+        run: |
+          for chart in helm-charts/charts/*/; do
+            helm template test-release "$chart" >/dev/null
+          done
+
+      - name: CRDs in the tarantool3-operator chart are in sync
+        run: |
+          diff -u config/crd/bases/tarantool3/db.tarantool.io_clusters.yaml \
+            helm-charts/charts/tarantool3-operator/crds/db.tarantool.io_clusters.yaml
+          diff -u config/crd/bases/tarantool3/db.tarantool.io_replicasets.yaml \
+            helm-charts/charts/tarantool3-operator/crds/db.tarantool.io_replicasets.yaml
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - uses: azure/setup-helm@v4
+
+      - name: Install kind
+        run: |
+          curl -fsSLo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - uses: azure/setup-kubectl@v4
+
+      - name: Run the chart e2e
+        run: make test-e2e-helm
