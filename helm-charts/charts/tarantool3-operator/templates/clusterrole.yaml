@@ -1,0 +1,52 @@
+{{- if .Values.rbac.create }}
+# Mirrors config/rbac/role.yaml (the db.tarantool.io rules) in the operator
+# repository; the legacy tarantool.io rules are included because the same
+# binary still serves the deprecated Cartridge API.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "tarantool3-operator.fullname" . }}
+  labels: {{- include "tarantool3-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - endpoints
+      - events
+      - persistentvolumeclaims
+      - persistentvolumes
+      - pods
+      - pods/exec
+      - secrets
+      - services
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - pods/logs
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [db.tarantool.io]
+    resources: [clusters, replicasets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [db.tarantool.io]
+    resources: [clusters/finalizers, replicasets/finalizers]
+    verbs: [update]
+  - apiGroups: [db.tarantool.io]
+    resources: [clusters/status, replicasets/status]
+    verbs: [get, patch, update]
+  - apiGroups: [tarantool.io]
+    resources: [cartridgeconfigs, clusters, roles]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [tarantool.io]
+    resources: [cartridgeconfigs/finalizers]
+    verbs: [update]
+  - apiGroups: [tarantool.io]
+    resources: [cartridgeconfigs/status, clusters/status, roles/status]
+    verbs: [get, patch, update]
+{{- end }}

@@ -1,0 +1,15 @@
+The Tarantool 3 operator is deployed.
+
+Create a cluster:
+
+  kubectl apply -f https://raw.githubusercontent.com/tarantool/tarantool-operator/master/config/samples/tarantool3/db.tarantool.io_v2alpha1_minimal.yaml
+
+Check it:
+
+  kubectl get clusters.db.tarantool.io,replicasets.db.tarantool.io
+
+The operator provisions a built-in "tarantool-operator" Tarantool user (super
+role, generated password in the <cluster>-operator-user Secret) so leader
+observation, configuration hot reload, schema upgrades and safe scale-in work
+out of the box. Set spec.disableOperatorUser: true on a Cluster to manage
+privileged users yourself.

@@ -1,0 +1,24 @@
+---
+apiVersion: v2
+name: tarantool3-operator
+description: >-
+  Kubernetes operator for Tarantool 3 clusters (db.tarantool.io/v2alpha1).
+  Manages Cluster and ReplicaSet resources with Tarantool-first declarative
+  configuration, hot reload, safe scale-in and rolling updates.
+type: application
+version: 0.1.0
+appVersion: 1.0.0-rc1
+kubeVersion: ">=1.25-0"
+icon: https://static.tarantool.io/pub/220829-1248-ae7bca7/tarantool/images/logo-tarantool-full.svg
+home: https://github.com/tarantool/tarantool-operator
+keywords:
+  - tarantool
+  - tarantool3
+  - tarantool-operator
+  - database
+sources:
+  - https://github.com/tarantool/tarantool-operator
+  - https://github.com/tarantool/tarantool
+maintainers:
+  - name: tarantool
+    url: https://www.tarantool.io
