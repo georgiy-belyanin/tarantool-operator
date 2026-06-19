@@ -1,0 +1,35 @@
+console:
+  socket: /var/run/tarantool/admin.socket
+  enabled: true
+groups:
+  storages:
+    replicasets:
+      storage-001:
+        replication:
+          bootstrap_strategy: config
+        instances:
+          storage-001-0:
+            iproto:
+              advertise:
+                peer:
+                  uri: storage-001-0.example.default.svc.cluster.local:3301
+              listen:
+                - uri: 0.0.0.0:3301
+          storage-001-1:
+            iproto:
+              advertise:
+                peer:
+                  uri: storage-001-1.example.default.svc.cluster.local:3301
+              listen:
+                - uri: 0.0.0.0:3301
+        leader: storage-001-0
+        bootstrap_leader: storage-001-0
+replication:
+  failover: manual
+credentials:
+  users:
+    tarantool-operator:
+      roles:
+        - super
+labels:
+  operator_config_hash: d2921e64f7291a02b8651aabd0a30a95bf7d4832015d4d69083e65b5e15bd6eb

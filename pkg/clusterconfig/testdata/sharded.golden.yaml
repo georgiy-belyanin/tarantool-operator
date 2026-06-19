@@ -1,0 +1,110 @@
+console:
+  enabled: true
+  socket: /var/run/tarantool/admin.socket
+groups:
+  routers:
+    replicasets:
+      router-001:
+        roles:
+          - roles.crud-router
+        bootstrap_leader: router-001-0
+        replication:
+          bootstrap_strategy: config
+        instances:
+          router-001-0:
+            iproto:
+              advertise:
+                peer:
+                  uri: router-001-0.example.tarantool.svc.cluster.local:3301
+                sharding:
+                  uri: router-001-0.example.tarantool.svc.cluster.local:3301
+              listen:
+                - uri: 0.0.0.0:3301
+        sharding:
+          roles:
+            - router
+  storages:
+    replicasets:
+      storage-001:
+        bootstrap_leader: storage-001-0
+        replication:
+          bootstrap_strategy: config
+        instances:
+          storage-001-0:
+            iproto:
+              advertise:
+                sharding:
+                  uri: storage-001-0.example.tarantool.svc.cluster.local:3301
+                peer:
+                  uri: storage-001-0.example.tarantool.svc.cluster.local:3301
+              listen:
+                - uri: 0.0.0.0:3301
+          storage-001-1:
+            iproto:
+              listen:
+                - uri: 0.0.0.0:3301
+              advertise:
+                peer:
+                  uri: storage-001-1.example.tarantool.svc.cluster.local:3301
+                sharding:
+                  uri: storage-001-1.example.tarantool.svc.cluster.local:3301
+        sharding:
+          roles:
+            - storage
+          weight: 1
+      storage-002:
+        sharding:
+          roles:
+            - storage
+          weight: 1
+        bootstrap_leader: storage-002-0
+        replication:
+          bootstrap_strategy: config
+        instances:
+          storage-002-0:
+            iproto:
+              advertise:
+                sharding:
+                  uri: storage-002-0.example.tarantool.svc.cluster.local:3301
+                peer:
+                  uri: storage-002-0.example.tarantool.svc.cluster.local:3301
+              listen:
+                - uri: 0.0.0.0:3301
+          storage-002-1:
+            iproto:
+              advertise:
+                peer:
+                  uri: storage-002-1.example.tarantool.svc.cluster.local:3301
+                sharding:
+                  uri: storage-002-1.example.tarantool.svc.cluster.local:3301
+              listen:
+                - uri: 0.0.0.0:3301
+replication:
+  failover: election
+log:
+  level: 5
+labels:
+  operator_config_hash: f2b5201ae9315d09fb6133dfa8643c2c352bb510d21183f92227a5b873a4e464
+iproto:
+  advertise:
+    peer:
+      login: replicator
+    sharding:
+      login: storage
+credentials:
+  users:
+    tarantool-operator:
+      roles:
+        - super
+    replicator:
+      roles:
+        - replication
+      password: replicator-secret
+    storage:
+      roles:
+        - sharding
+      password: storage-secret
+sharding:
+  bucket_count: 3000
+memtx:
+  memory: 268435456
