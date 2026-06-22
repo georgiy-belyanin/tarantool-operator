@@ -1,0 +1,84 @@
+# A sharded storage tier is expressed as several ReplicaSet objects (one CR =
+# one Tarantool 3 replicaset). Here two storage shards, each with one leader and
+# one read-only replica. Add more shards by adding more ReplicaSet objects.
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: storage-001
+spec:
+  clusterName: example
+  group: storages
+  replicas: 2
+  config:
+    sharding:
+      roles: [storage]
+      weight: 1
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tarantool
+        app.kubernetes.io/component: storage
+    spec:
+      containers:
+        - name: tarantool
+          image: tarantool/tarantool:3
+          ports:
+            - name: iproto
+              containerPort: 3301
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/tarantool
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: storage-002
+spec:
+  clusterName: example
+  group: storages
+  replicas: 2
+  config:
+    sharding:
+      roles: [storage]
+      weight: 1
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tarantool
+        app.kubernetes.io/component: storage
+    spec:
+      containers:
+        - name: tarantool
+          image: tarantool/tarantool:3
+          ports:
+            - name: iproto
+              containerPort: 3301
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/tarantool
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi

@@ -2,9 +2,13 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/tarantool.io_clusters.yaml
-- bases/tarantool.io_roles.yaml
-- bases/tarantool.io_cartridgeconfigs.yaml
+# Tarantool 3 (current API, db.tarantool.io/v2alpha1)
+- bases/tarantool3/db.tarantool.io_clusters.yaml
+- bases/tarantool3/db.tarantool.io_replicasets.yaml
+# Legacy Tarantool 2 / Cartridge (tarantool.io) — deprecated
+- bases/cartridge/tarantool.io_clusters.yaml
+- bases/cartridge/tarantool.io_roles.yaml
+- bases/cartridge/tarantool.io_cartridgeconfigs.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge:

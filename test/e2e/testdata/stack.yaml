@@ -1,0 +1,186 @@
+# Full-stack e2e fixture: a large, replicated cluster that combines, in ONE
+# cluster, the features the smaller e2es exercise in isolation:
+#
+#   * large replicated topology — 9 instances across 2 groups and 3 replica sets,
+#     election failover so each replica set forms a real replicated set;
+#   * application role — the "routers" group runs a user role (spec.roles +
+#     spec.rolesCfg), its module mounted from a ConfigMap and required via LUA_PATH;
+#   * Lua application — the "storages" group loads a user app via app.file
+#     (per-replica-set spec.config), its module mounted from a ConfigMap.
+#
+# Replica sets are 3 instances each: with replication.failover: election the
+# quorum is a majority (2 of 3), so a fresh set elects a leader reliably at
+# bootstrap. (A 2-instance election set needs BOTH nodes to form a quorum, which
+# is racy at fresh bootstrap — several such sets deadlocked with no leader.)
+#
+# Both the role and the app expose a *deferred* seed function that the e2e calls
+# on the writable leader of a replica set — leadership is election-decided after
+# bootstrap, so writing inside the role's apply() would race the election. The
+# test then checks the seeded data replicates to a follower.
+#
+# No sharding (community image has no vshard); a small memtx keeps 9 instances
+# light on a single kind node.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: stack-creds
+type: Opaque
+stringData:
+  replicator: r-secret
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stack-role-code
+data:
+  greeter.lua: |
+    local function apply(conf)
+        conf = conf or {}
+        rawset(_G, 'e2e_role_applied', true)
+        rawset(_G, 'e2e_role_greeting', conf.greeting or 'none')
+        -- Deferred: invoked by the e2e on the writable leader (election decides
+        -- leadership after config apply, so we don't write from apply() itself).
+        rawset(_G, 'e2e_role_seed', function()
+            if box.space.greetings == nil then
+                local s = box.schema.space.create('greetings')
+                s:format({{name = 'id', type = 'unsigned'}, {name = 'msg', type = 'string'}})
+                s:create_index('pk', {parts = {'id'}})
+            end
+            box.space.greetings:replace({1, rawget(_G, 'e2e_role_greeting') or 'none'})
+            return box.space.greetings:get(1)[2]
+        end)
+    end
+    return {
+        validate = function() end,
+        apply = apply,
+        stop = function() end,
+        dependencies = {},
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stack-app-code
+data:
+  init.lua: |
+    rawset(_G, 'e2e_app_loaded', true)
+
+    function _G.e2e_sum(a, b)
+        return a + b
+    end
+
+    -- Deferred data-plane logic, called by the e2e on the storage leader.
+    function _G.e2e_seed()
+        if box.space.items == nil then
+            local s = box.schema.space.create('items')
+            s:format({{name = 'id', type = 'unsigned'}, {name = 'name', type = 'string'}})
+            s:create_index('pk', {parts = {'id'}})
+        end
+        box.space.items:replace({1, 'widget'})
+        return box.space.items:get(1)[2]
+    end
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: stack
+spec:
+  credentialsSecret: stack-creds
+  config:
+    credentials:
+      users:
+        replicator:
+          roles: [replication]
+    memtx:
+      memory: 67108864
+    log:
+      level: 4
+    replication:
+      failover: election
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: router-001
+spec:
+  clusterName: stack
+  group: routers
+  replicas: 3
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        env:
+        - name: LUA_PATH
+          value: "/opt/roles/?.lua;;"
+        ports:
+        - name: iproto
+          containerPort: 3301
+        volumeMounts:
+        - name: role-code
+          mountPath: "/opt/roles"
+      volumes:
+      - name: role-code
+        configMap:
+          name: stack-role-code
+  config:
+    roles:
+    - greeter
+    roles_cfg:
+      greeter:
+        greeting: hello-from-role
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: storage-001
+spec:
+  clusterName: stack
+  group: storages
+  replicas: 3
+  config:
+    app:
+      file: "/app/init.lua"
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301
+        volumeMounts:
+        - name: app-code
+          mountPath: "/app"
+      volumes:
+      - name: app-code
+        configMap:
+          name: stack-app-code
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: storage-002
+spec:
+  clusterName: stack
+  group: storages
+  replicas: 3
+  config:
+    app:
+      file: "/app/init.lua"
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301
+        volumeMounts:
+        - name: app-code
+          mountPath: "/app"
+      volumes:
+      - name: app-code
+        configMap:
+          name: stack-app-code

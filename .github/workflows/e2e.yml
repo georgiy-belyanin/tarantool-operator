@@ -1,0 +1,65 @@
+name: Tarantool 3 operator — e2e (kind)
+
+# End-to-end tests for the Tarantool 3 (db.tarantool.io/v2alpha1) operator. Each
+# scenario is self-contained: it spins up its own kind cluster and builds whatever
+# images it needs. The operator runs out-of-cluster for API-only scenarios and
+# in-cluster where it must reach instances over iproto (leader observation, config
+# reload, schema upgrade, vshard bootstrap). A few scenarios build extra images
+# (tarantool-vshard for sharding, cartridge-kv for coexistence), pin specific
+# tarantool versions (3.6 -> 3.7 upgrades), or create a multi-node cluster
+# (dead-node remediation) — see each script's header and AGENTS.md.
+# helm and samples have their own workflows (helm.yml, samples.yml).
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  e2e:
+    name: ${{ matrix.scenario }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario:
+          - test-e2e             # single-instance smoke
+          - test-e2e-scaling     # scale up/down
+          - test-e2e-config      # config propagation
+          - test-e2e-badconfig   # config-first contract under a typo (render verbatim, CrashLoop not masked, recover on fix)
+          - test-e2e-persistence # PV data persistence + expel round trip (operator in-cluster)
+          - test-e2e-large       # ~10 instances, 2 groups, 5 replica sets
+          - test-e2e-luaapp      # user Lua application (app.file)
+          - test-e2e-roles       # application role (roles + rolesCfg)
+          - test-e2e-deliver-role # ./deliver-role ships + enables a role, hot-reloaded (operator in-cluster)
+          - test-e2e-stack       # full stack: large replicated cluster + role + Lua app
+          - test-e2e-leader      # leader observation + leader-aware failover (operator in-cluster)
+          - test-e2e-reload      # dynamic config hot-reload, no restart (operator in-cluster)
+          - test-e2e-rolling     # rolling image update under load, 3.6 -> 3.7 (operator in-cluster)
+          - test-e2e-upgrade     # box.schema.upgrade() after an image roll, 3.6 -> 3.7 (operator in-cluster)
+          - test-e2e-degraded    # Degraded phase on a stuck instance
+          - test-e2e-load        # data integrity under load (operator in-cluster)
+          - test-e2e-coexist     # Cartridge + Tarantool 3 operator coexistence (builds cartridge-kv)
+          - test-e2e-rebalance   # vshard auto-bootstrap + bucket rebalance (builds tarantool-vshard)
+          - test-e2e-nodeloss    # dead-node remediation (multi-node kind)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Install kind
+        run: |
+          curl -fsSLo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+      - name: Run ${{ matrix.scenario }}
+        run: make ${{ matrix.scenario }}

@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+#
+# deliver-role — ship a Tarantool 3 application role to a cluster in one command.
+#
+# A role is one or more Lua modules — pass them as .lua files, a directory, or a
+# tt-packed .rpm (its application .lua are extracted). This pushes them as a
+# ConfigMap and wires them into a ReplicaSet (mounts the ConfigMap on LUA_PATH,
+# enables the role in spec.config.roles); the operator applies it via
+# config:reload(). No image rebuild, no PVC, no init container. The first role on a
+# replicaset recreates the instance once to attach the mount; every delivery after
+# that hot-reloads.
+#
+# Run with --help for usage. Requires: kubectl, python3 (and cpio, for .rpm input).
+
+set -euo pipefail
+prog=$(basename "$0")
+
+usage() {
+  cat <<EOF
+Usage: $prog <role.lua | dir | role.rpm> [more ...] [flags]
+
+Delivers Tarantool 3 application role module(s) to a cluster the operator manages.
+
+Flags:
+  -r, --replicaset NAME   wire the role into this ReplicaSet (omit to just print)
+  -n, --namespace  NS     namespace (default: current kube context, else "default")
+      --name       NAME    ConfigMap name (default: <replicaset>-roles)
+      --mount      PATH    where to mount the modules (default: /opt/roles)
+      --no-enable          deliver + mount, but leave spec.config.roles untouched
+      --print              print the YAML instead of applying anything
+  -h, --help               show this help
+
+Examples:
+  $prog greeter.lua -r my-rs              # deliver + enable on replicaset my-rs
+  $prog roles/ -r my-rs                   # a whole directory of modules
+  $prog kvapp.rpm -r my-rs                # extract the role module(s) from an RPM
+  $prog greeter.lua --print               # show what would be applied
+EOF
+  exit "${1:-0}"
+}
+die() { echo "$prog: $*" >&2; exit 1; }
+
+# ---- the ReplicaSet transform -----------------------------------------------
+# Idempotently add the role-code volume, its mount, the LUA_PATH env var, and the
+# role names to a ReplicaSet read on stdin; write the result to stdout. Kept in
+# python3 (portable, always present) because it must MERGE — never clobber a
+# volume/env/role the user already has — which a `kubectl patch` cannot express.
+read -r -d '' WIRE_PY <<'PY' || true
+import json, os, sys
+
+cm    = os.environ["CONFIGMAP"]
+vol   = os.environ["VOLUME"]
+mount = os.environ["MOUNT"].rstrip("/")
+roles_to_enable = os.environ["ROLES"].split(",") if os.environ["ROLES"] else []
+
+rs   = json.load(sys.stdin)
+spec = rs.setdefault("spec", {})
+pod  = spec.setdefault("podTemplate", {}).setdefault("spec", {})
+
+# 1. a volume that exposes the ConfigMap of role modules
+volumes = pod.setdefault("volumes", [])
+if not any(v.get("name") == vol for v in volumes):
+    volumes.append({"name": vol, "configMap": {"name": cm}})
+
+# 2. mount it into the tarantool container and put it on LUA_PATH
+containers = pod.setdefault("containers", [])
+if not containers:
+    sys.exit("replicaset podTemplate has no containers")
+c = next((c for c in containers if c.get("name") == "tarantool"), containers[0])
+
+mounts = c.setdefault("volumeMounts", [])
+if not any(m.get("name") == vol for m in mounts):
+    mounts.append({"name": vol, "mountPath": mount})
+
+env = c.setdefault("env", [])
+lua_path = next((e for e in env if e.get("name") == "LUA_PATH"), None)
+if lua_path is None:
+    env.append({"name": "LUA_PATH", "value": mount + "/?.lua;;"})
+elif mount not in lua_path.get("value", ""):
+    lua_path["value"] = mount + "/?.lua;" + lua_path["value"]
+
+# 3. enable the role(s) (unless --no-enable left ROLES empty)
+roles = spec.setdefault("config", {}).setdefault("roles", [])
+for r in roles_to_enable:
+    if r not in roles:
+        roles.append(r)
+
+# drop server-managed metadata so the result re-applies cleanly
+meta = rs.get("metadata", {})
+for k in ("managedFields", "creationTimestamp", "generation", "resourceVersion", "uid"):
+    meta.pop(k, None)
+rs.pop("status", None)
+json.dump(rs, sys.stdout, indent=2)
+PY
+
+# ---- the RPM payload extractor ----------------------------------------------
+# Write a tt-packed RPM's cpio payload to stdout: skip the lead + signature/main
+# headers to find the payload, then decompress it (gzip/xz/bzip2). Piped into
+# `cpio` to unpack the app .lua. Self-contained (python3 stdlib) — no rpm2cpio
+# needed; tt packs gzip by default.
+read -r -d '' RPM2CPIO <<'PY' || true
+import struct, sys, zlib, lzma, bz2
+data = open(sys.argv[1], "rb").read()
+off = 96  # lead
+def header_size(o):
+    if data[o:o+4] != b"\x8e\xad\xe8\x01":
+        sys.exit("not an RPM (bad header magic)")
+    nindex, nbytes = struct.unpack(">II", data[o+8:o+16])
+    return 16 + nindex*16 + nbytes
+off += header_size(off)          # signature header,
+off = (off + 7) & ~7             #   padded to an 8-byte boundary
+off += header_size(off)          # main header; payload follows
+payload = data[off:]
+if   payload[:2] == b"\x1f\x8b":  out = zlib.decompressobj(16+zlib.MAX_WBITS).decompress(payload)
+elif payload[:5] == b"\xfd7zXZ":  out = lzma.LZMADecompressor().decompress(payload)
+elif payload[:3] == b"BZh":       out = bz2.BZ2Decompressor().decompress(payload)
+else: sys.exit("unsupported RPM payload compression (need rpm2cpio)")
+sys.stdout.buffer.write(out)
+PY
+
+# ---- parse arguments --------------------------------------------------------
+namespace=""; replicaset=""; cm_name=""; mount="/opt/roles"; enable=1; print_only=0
+sources=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help)        usage 0 ;;
+    -n|--namespace)   namespace="$2"; shift 2 ;;
+    -r|--replicaset)  replicaset="$2"; shift 2 ;;
+    --name)           cm_name="$2"; shift 2 ;;
+    --mount)          mount="$2"; shift 2 ;;
+    --no-enable)      enable=0; shift ;;
+    --print)          print_only=1; shift ;;
+    -*)               echo "$prog: unknown flag: $1" >&2; usage 1 ;;
+    *)                sources+=("$1"); shift ;;
+  esac
+done
+[ "${#sources[@]}" -gt 0 ] || { echo "$prog: give at least one .lua file or a directory" >&2; usage 1; }
+for bin in kubectl python3; do command -v "$bin" >/dev/null || die "missing required tool: $bin"; done
+
+# ---- collect the role modules into a staging dir ----------------------------
+stage="$(mktemp -d)"; trap 'rm -rf "$stage"' EXIT
+for src in "${sources[@]}"; do
+  if [ -d "$src" ]; then
+    cp "$src"/*.lua "$stage/" 2>/dev/null || die "no .lua files in directory: $src"
+  elif [ -f "$src" ] && [ "${src##*.}" = "lua" ]; then
+    cp "$src" "$stage/"
+  elif [ -f "$src" ] && [ "${src##*.}" = "rpm" ]; then
+    command -v cpio >/dev/null || die "extracting an .rpm needs cpio (or pass the role's .lua files)"
+    unpack="$(mktemp -d)"
+    # Prefer the built-in extractor; fall back to system rpm2cpio (e.g. zstd payloads).
+    python3 -c "$RPM2CPIO" "$src" 2>/dev/null | ( cd "$unpack" && cpio -idmu --quiet 2>/dev/null ) || true
+    if ! find "$unpack" -path '*/usr/share/tarantool/*' -name '*.lua' | grep -q . && command -v rpm2cpio >/dev/null; then
+      rpm2cpio "$src" 2>/dev/null | ( cd "$unpack" && cpio -idmu --quiet 2>/dev/null ) || true
+    fi
+    # Copy the application's role modules — skipping init.lua, the tt entrypoint.
+    found=0
+    while IFS= read -r f; do
+      [ "$(basename "$f")" = "init.lua" ] && continue
+      cp "$f" "$stage/"; found=1
+    done < <(find "$unpack" -path '*/usr/share/tarantool/*' -name '*.lua')
+    rm -rf "$unpack"
+    [ "$found" = 1 ] || die "no role .lua found in $src (unsupported payload? install rpm2cpio, or pass the .lua files)"
+  else
+    die "not a .lua file, directory, or .rpm: $src"
+  fi
+done
+
+# ---- derive defaults --------------------------------------------------------
+volume="role-code"
+[ -n "$namespace" ] || namespace="$(kubectl config view --minify -o jsonpath='{..namespace}' 2>/dev/null || true)"
+[ -n "$namespace" ] || namespace="default"
+[ -n "$cm_name" ]   || cm_name="${replicaset:-tt}-roles"
+
+module_names=(); from_file=()
+for f in "$stage"/*.lua; do
+  module_names+=("$(basename "${f%.lua}")")
+  from_file+=(--from-file="$f")
+done
+modules_csv="$(IFS=,; echo "${module_names[*]}")"
+[ "$enable" = 1 ] && roles_csv="$modules_csv" || roles_csv=""
+
+configmap="$(kubectl create configmap "$cm_name" -n "$namespace" "${from_file[@]}" --dry-run=client -o yaml)"
+
+# ---- print-only: show the ConfigMap + the manual wiring, change nothing -----
+if [ "$print_only" = 1 ] || [ -z "$replicaset" ]; then
+  echo "$configmap"
+  cat <<EOF
+---
+# Add to ReplicaSet ${replicaset:-<your-replicaset>}:
+#   spec.podTemplate.spec.volumes:     - {name: $volume, configMap: {name: $cm_name}}
+#   tarantool container .volumeMounts: - {name: $volume, mountPath: $mount}
+#   tarantool container .env:          - {name: LUA_PATH, value: "${mount%/}/?.lua;;"}
+EOF
+  [ "$enable" = 1 ] && echo "#   spec.config.roles:                 [${modules_csv//,/, }]"
+  [ -z "$replicaset" ] && echo "# (pass -r <replicaset> to apply all of this for you)"
+  exit 0
+fi
+
+# ---- apply: push the ConfigMap, then merge-wire the ReplicaSet --------------
+echo "==> delivering role(s) [${modules_csv//,/, }] to namespace $namespace"
+echo "$configmap" | kubectl apply -f -
+
+echo "==> wiring ConfigMap $cm_name into replicaset $replicaset (mount $mount$([ "$enable" = 1 ] && echo ", enabling in spec.config.roles"))"
+kubectl get replicaset.db.tarantool.io "$replicaset" -n "$namespace" -o json \
+  | CONFIGMAP="$cm_name" VOLUME="$volume" MOUNT="$mount" ROLES="$roles_csv" python3 -c "$WIRE_PY" \
+  | kubectl apply -f -
+
+echo "==> done — the operator applies the role via config:reload()."
+echo "    (first role on a replicaset recreates the instance once to attach the mount; later deliveries hot-reload)"
+[ "$enable" = 1 ] || echo "    (delivered but not enabled — add the module name(s) to spec.config.roles when ready)"

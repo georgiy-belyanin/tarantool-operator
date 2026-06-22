@@ -1,0 +1,80 @@
+# Override chart name / full resource name templates
+nameOverride: ""
+fullnameOverride: ""
+
+# Tarantool 3 operator image. The binary also contains the legacy Cartridge
+# (tarantool.io) controllers, so do NOT install this chart next to the legacy
+# tarantool-operator chart in the same cluster — two deployments would manage
+# the same legacy CRDs.
+image:
+  repository: tarantool/tarantool-operator
+  # Defaults to the chart appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Names of image pull Secrets in the release namespace
+imagePullSecrets: []
+
+# Two replicas for control-plane HA; leader election (always on) ensures only
+# one is active at a time.
+replicas: 2
+
+# Labels / annotations added to all chart-managed objects
+labels: {}
+annotations: {}
+
+# Extra labels / annotations for the operator pods
+podLabels: {}
+podAnnotations: {}
+
+# Scheduling
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+
+# Pod / container security (distroless nonroot image)
+securityContext:
+  runAsNonRoot: true
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# Ports the manager binds
+ports:
+  # Health/readiness probes (/healthz, /readyz)
+  health: 8081
+  # Prometheus metrics (controller-runtime + tarantool3_* operator metrics)
+  metrics: 8080
+
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 5
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 5
+
+serviceAccount:
+  create: true
+  # Generated from the fullname when empty
+  name: ""
+  annotations: {}
+
+rbac:
+  # Create the ClusterRole/Bindings and the namespace-scoped leader-election Role
+  create: true

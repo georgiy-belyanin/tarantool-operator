@@ -1,9 +1,7 @@
-## Append samples you want in your CSV to this file as resources ##
+## Operator CR samples, split by API the same way the code is:
+##   tarantool3/ — Tarantool 3 (db.tarantool.io/v2alpha1), the current API
+##   cartridge/  — legacy Tarantool 2 + Cartridge (tarantool.io), deprecated
 resources:
-- tarantool.io_v1alpha1_cluster.yaml
-- tarantool.io_v1alpha1_replicasettemplate.yaml
-- tarantool.io_v1alpha1_role.yaml
-- tarantool.io_v1beta1_cluster.yaml
-- tarantool.io_v1beta1_role.yaml
-- tarantool.io_v1beta1_cartridgeconfig.yaml
+- tarantool3
+- cartridge
 #+kubebuilder:scaffold:manifestskustomizesamples

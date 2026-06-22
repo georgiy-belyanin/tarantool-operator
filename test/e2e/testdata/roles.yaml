@@ -1,0 +1,70 @@
+# Application-roles e2e fixture: a single instance that enables a user
+# application *role* (not app.file). The role module is supplied from a ConfigMap
+# mounted at /opt/roles and made requireable via LUA_PATH; it is enabled through
+# the operator's spec.roles, and configured through spec.rolesCfg — exercising the
+# Tarantool 3 roles mechanism the operator models on ReplicaSet.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: role-code
+data:
+  greeter.lua: |
+    local function apply(conf)
+        conf = conf or {}
+        rawset(_G, 'e2e_role_applied', true)
+        rawset(_G, 'e2e_role_greeting', conf.greeting or 'none')
+
+        -- user data-plane logic driven by the role
+        if box.info.ro == false then
+            if box.space.greetings == nil then
+                local s = box.schema.space.create('greetings')
+                s:format({{name = 'id', type = 'unsigned'}, {name = 'msg', type = 'string'}})
+                s:create_index('pk', {parts = {'id'}})
+            end
+            box.space.greetings:replace({1, conf.greeting or 'none'})
+        end
+    end
+    return {
+        validate = function() end,
+        apply = apply,
+        stop = function() end,
+        dependencies = {},
+    }
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: roles
+spec: {}
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: roles-rs
+spec:
+  clusterName: roles
+  replicas: 1
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        env:
+        - name: LUA_PATH
+          value: "/opt/roles/?.lua;;"
+        ports:
+        - name: iproto
+          containerPort: 3301
+        volumeMounts:
+        - name: role-code
+          mountPath: "/opt/roles"
+      volumes:
+      - name: role-code
+        configMap:
+          name: role-code
+  config:
+    roles:
+    - greeter
+    roles_cfg:
+      greeter:
+        greeting: hello-from-role

@@ -7,8 +7,20 @@
 [![Tests][gh-test-actions-badge]][gh-actions-url]
 [![Lint][gh-lint-actions-badge]][gh-actions-url]
 
-This is a [Kubernetes Operator](https://coreos.com/operators/) which deploys [Tarantool Cartridge](https://github.com/tarantool/cartridge)-based
-cluster on Kubernetes.
+This is a [Kubernetes Operator](https://coreos.com/operators/) for Tarantool clusters on Kubernetes.
+
+The repository hosts **two** operators side by side:
+
+* **Tarantool 3** (`db.tarantool.io/v2alpha1`) — the current operator, built on
+  Tarantool 3's native [declarative cluster configuration](https://www.tarantool.io/en/doc/latest/concepts/configuration/)
+  (no Cartridge). It renders the cluster config from `Cluster` + `ReplicaSet`
+  custom resources and delivers it to the instances. **See [ABOUT.md](./ABOUT.md)**
+  for how it works and a feature/status matrix. Its code lives in the non-`cartridge`
+  packages (`apis/v2alpha1`, `controllers/tarantool3`, `pkg/clusterconfig`).
+* **Tarantool 2 + Cartridge** (`tarantool.io`) — the legacy operator that deploys
+  [Tarantool Cartridge](https://github.com/tarantool/cartridge)-based clusters.
+  It is **deprecated**, segregated under the `cartridge/` subpackages, and kept for
+  backward compatibility during migration.
 
 If you are a Tarantool Enterprise customer, or need Enterprise features such as rolling update, scaling down and may others
 you can use the [Tarantool Operator Enterprise](https://www.tarantool.io/ru/kubernetesoperator).
@@ -29,6 +41,17 @@ please follow [migration guide](./docs/migrate-from-0.0.x-to-1.0.0.md).
 * [Contribute](#contribute)
 
 ## Getting started
+
+### Tarantool 3 (`db.tarantool.io/v2alpha1`)
+
+- Overview, architecture, and feature/status matrix: **[ABOUT.md](./ABOUT.md)**
+- Sample custom resources: [`config/samples/tarantool3/`](./config/samples/tarantool3)
+  (minimal, replicated, sharded, application roles, Lua app, metrics)
+- Try it on [kind](https://kind.sigs.k8s.io/): `make test-e2e` (and `-scaling`,
+  `-config`, `-large`, `-luaapp`, `-roles`, `-stack`, `-leader`); see
+  [`test/e2e/`](./test/e2e)
+
+### Tarantool 2 + Cartridge (legacy)
 
 - [Install the Operator](./docs/installation.md)
 - [Deploy example application](./docs/deploy-example-application.md)

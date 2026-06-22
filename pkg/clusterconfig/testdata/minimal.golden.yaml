@@ -1,0 +1,29 @@
+labels:
+  operator_config_hash: 3c358cdb4e61e3aa95b38dc1014b8087cbbec7b6ce81372e9b3f57283788cb60
+console:
+  enabled: true
+  socket: /var/run/tarantool/admin.socket
+groups:
+  routers:
+    replicasets:
+      router-001:
+        instances:
+          router-001-0:
+            iproto:
+              advertise:
+                peer:
+                  uri: router-001-0.example.default.svc.cluster.local:3301
+              listen:
+                - uri: 0.0.0.0:3301
+            database:
+              mode: rw
+        bootstrap_leader: router-001-0
+        replication:
+          bootstrap_strategy: config
+replication:
+  failover: "off"
+credentials:
+  users:
+    tarantool-operator:
+      roles:
+        - super

@@ -1,0 +1,33 @@
+# Tarantool 3 side of the coexistence test: a single-instance cluster running
+# the shared kv app via config.app.file (mounted from the kv-app ConfigMap the
+# e2e creates from kv-app-t3.lua). Stock tarantool/tarantool:3 image — no vshard
+# needed (the kv space is plain).
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: t3
+spec:
+  config:
+    app:
+      file: /app/kv.lua
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: t3-rs
+spec:
+  clusterName: t3
+  replicas: 1
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - {name: iproto, containerPort: 3301}
+        volumeMounts:
+        - {name: kv-app, mountPath: /app}
+      volumes:
+      - name: kv-app
+        configMap:
+          name: kv-app

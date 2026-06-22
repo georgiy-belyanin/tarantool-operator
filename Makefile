@@ -50,7 +50,7 @@ endif
 REPO ?= tarantool/tarantool-operator
 IMG ?= ${REPO}:${VERSION}
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.24.2
+ENVTEST_K8S_VERSION = 1.31.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -88,13 +88,19 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." \
-		crd:generateEmbeddedObjectMeta=true,maxDescLen=0 \
-		output:crd:artifacts:config=config/crd/bases
+	# Scope to the marker-bearing dirs; a ./... glob descends into a local
+	# tarantool/ source checkout whose vendored Go has unfetchable deps.
+	$(CONTROLLER_GEN) rbac:roleName=manager-role webhook paths="./apis/..." paths="./controllers/..."
+	# CRDs are emitted into per-API subdirectories so config/crd/bases mirrors the
+	# code layout: cartridge/ (legacy tarantool.io) and tarantool3/ (db.tarantool.io).
+	$(CONTROLLER_GEN) crd:generateEmbeddedObjectMeta=true,maxDescLen=0 \
+		paths="./apis/cartridge/..." output:crd:artifacts:config=config/crd/bases/cartridge
+	$(CONTROLLER_GEN) crd:generateEmbeddedObjectMeta=true,maxDescLen=0 \
+		paths="./apis/v2alpha1/..." output:crd:artifacts:config=config/crd/bases/tarantool3
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -110,6 +116,95 @@ lint: ## Lint the code
 .PHONY: test
 test: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./... -coverprofile cover.out
+
+.PHONY: verify
+verify: manifests generate ## Fail if generated manifests/code are not up to date (CI guard).
+	@git diff --exit-code -- config/crd config/rbac ':(glob)**/zz_generated.deepcopy.go' || { echo "ERROR: generated files are out of date — run 'make manifests generate' and commit."; exit 1; }
+
+.PHONY: test-e2e
+test-e2e: ## Run the kind-based end-to-end smoke test (needs kind + docker). Set KEEP=1 to keep the cluster.
+	./test/e2e/kind-e2e.sh
+
+.PHONY: test-e2e-scaling
+test-e2e-scaling: ## Run the kind-based scale up/down end-to-end test (needs kind + docker).
+	./test/e2e/kind-scaling.sh
+
+.PHONY: test-e2e-config
+test-e2e-config: ## Run the kind-based config-propagation end-to-end test (needs kind + docker).
+	./test/e2e/kind-config.sh
+
+.PHONY: test-e2e-badconfig
+test-e2e-badconfig: ## Run the kind-based bad-config e2e (config-first contract: typo rendered verbatim, CrashLoop not masked, recovers on fix; needs kind + docker).
+	./test/e2e/kind-badconfig.sh
+
+.PHONY: test-e2e-large
+test-e2e-large: ## Run the kind-based large-topology end-to-end test (~10 instances; needs kind + docker).
+	./test/e2e/kind-large.sh
+
+.PHONY: test-e2e-luaapp
+test-e2e-luaapp: ## Run the kind-based user-Lua-application end-to-end test (needs kind + docker).
+	./test/e2e/kind-luaapp.sh
+
+.PHONY: test-e2e-roles
+test-e2e-roles: ## Run the kind-based application-roles end-to-end test (needs kind + docker).
+	./test/e2e/kind-roles.sh
+
+.PHONY: test-e2e-deliver-role
+test-e2e-deliver-role: ## Run the kind-based deliver-role e2e (operator in-cluster; ./deliver-role ships + enables a role, hot-reloaded with no restart; needs kind + docker + python3).
+	./test/e2e/kind-deliver-role.sh
+
+.PHONY: test-e2e-stack
+test-e2e-stack: ## Run the kind-based full-stack e2e (large replicated cluster + role + Lua app; needs kind + docker).
+	./test/e2e/kind-stack.sh
+
+.PHONY: test-e2e-leader
+test-e2e-leader: ## Run the kind-based leader-observation e2e (operator in-cluster; election failover; needs kind + docker).
+	./test/e2e/kind-leader.sh
+
+.PHONY: test-e2e-reload
+test-e2e-reload: ## Run the kind-based config hot-reload e2e (operator in-cluster; dynamic config change without restart; needs kind + docker).
+	./test/e2e/kind-reload.sh
+
+.PHONY: test-e2e-persistence
+test-e2e-persistence: ## Run the kind-based data-persistence e2e (operator in-cluster; WAL replay, rollout, CR recreate, expel round trip; needs kind + docker).
+	./test/e2e/kind-persistence.sh
+
+.PHONY: test-e2e-helm
+test-e2e-helm: ## Run the kind-based Helm chart e2e (install, operate, hot reload, upgrade, uninstall; needs kind + helm + docker).
+	./test/e2e/kind-helm.sh
+
+.PHONY: test-e2e-nodeloss
+test-e2e-nodeloss: ## Run the kind-based dead-node remediation e2e (multi-node kind; force-reschedule + rejoin; needs kind + docker).
+	./test/e2e/kind-nodeloss.sh
+
+.PHONY: test-e2e-degraded
+test-e2e-degraded: ## Run the kind-based Degraded-phase e2e (stuck TX thread: Running-but-NotReady instance => Degraded; needs kind + docker).
+	./test/e2e/kind-degraded.sh
+
+.PHONY: test-e2e-rolling
+test-e2e-rolling: ## Run the kind-based rolling-update-under-load e2e (3.6 -> 3.7: no read downtime, no acked write lost; needs kind + docker).
+	./test/e2e/kind-rolling.sh
+
+
+.PHONY: test-e2e-rebalance
+test-e2e-rebalance: ## Run the kind-based sharding scale-out/in e2e (add storage replica set -> vshard rebalance -> drain weight 0 -> remove; needs kind + docker).
+	./test/e2e/kind-rebalance.sh
+
+.PHONY: test-e2e-load
+test-e2e-load: ## Run the long-lasting load+churn e2e (continuous routed load while scaling/rebalancing; no transaction lost; LOAD_CYCLES=N; needs kind + docker).
+	./test/e2e/kind-load.sh
+
+.PHONY: test-e2e-coexist
+test-e2e-coexist: ## Run the coexistence e2e (Cartridge + Tarantool 3 operators side by side, same kv app on both; needs kind + docker).
+	./test/e2e/kind-coexist.sh
+
+.PHONY: test-e2e-upgrade
+test-e2e-upgrade: ## Run the kind-based binary-upgrade e2e (operator in-cluster; 3.6->3.7 + schema upgrade; needs kind + docker).
+	./test/e2e/kind-upgrade.sh
+
+.PHONY: test-e2e-samples
+test-e2e-samples: ## Render-validate all samples and runtime-test the community-image-runnable ones on kind (needs kind + docker).
+	./test/e2e/kind-samples.sh
 
 ##@ Build
 
@@ -166,7 +261,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v3.8.7
-CONTROLLER_TOOLS_VERSION ?= v0.10.0
+CONTROLLER_TOOLS_VERSION ?= v0.21.0
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize

@@ -1,0 +1,44 @@
+# Leader-observation e2e fixture: a 3-instance election replica set. Three
+# instances keep quorum when one pod is deleted, so the cluster re-elects a leader
+# and the operator's status.leader (read over iproto with the super user) changes.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: leader-creds
+type: Opaque
+stringData:
+  replicator: r-secret
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: Cluster
+metadata:
+  name: leader
+spec:
+  credentialsSecret: leader-creds
+  config:
+    credentials:
+      users:
+        replicator:
+          roles: [replication, super]
+    replication:
+      failover: election
+---
+apiVersion: db.tarantool.io/v2alpha1
+kind: ReplicaSet
+metadata:
+  name: leader-rs
+spec:
+  clusterName: leader
+  replicas: 3
+  podTemplate:
+    spec:
+      containers:
+      - name: tarantool
+        image: tarantool/tarantool:3
+        ports:
+        - name: iproto
+          containerPort: 3301
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi

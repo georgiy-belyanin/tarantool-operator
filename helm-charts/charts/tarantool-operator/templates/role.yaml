@@ -1,0 +1,42 @@
+{{- if .Values.rbac.create }}
+apiVersion: {{ include "tarantool-operator.rbac.apiVersion" . }}
+kind: Role
+metadata:
+  name: {{ include "tarantool-operator.fullname" . }}
+  labels: {{- include "tarantool-operator.labels" . | nindent 4 }}
+  {{- if .Values.annotations }}
+  annotations: {{- tpl (.Values.annotations | toYaml) $ | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+{{- end }}

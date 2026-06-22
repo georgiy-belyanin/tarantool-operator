@@ -1,0 +1,16 @@
+## Tarantool 3 samples (db.tarantool.io/v2alpha1 — the current API).
+resources:
+# Minimal single-instance cluster (simplest starting point).
+- db.tarantool.io_v2alpha1_minimal.yaml
+# Replicated, unsharded HA cluster with manual failover.
+- db.tarantool.io_v2alpha1_replicated.yaml
+# Single instance enabling a declarative application role (config.roles + roles_cfg).
+- db.tarantool.io_v2alpha1_roles.yaml
+# Prometheus metrics export (Service + ServiceMonitor; needs a metrics-export image).
+- db.tarantool.io_v2alpha1_metrics.yaml
+# Sharded cluster (router + storages) with election failover.
+- db.tarantool.io_v2alpha1_cluster.yaml
+- db.tarantool.io_v2alpha1_replicaset_router.yaml
+- db.tarantool.io_v2alpha1_replicaset_storage.yaml
+# Advanced: Lua app + application role + multiple replica sets/groups + Secrets + PVCs.
+- db.tarantool.io_v2alpha1_advanced.yaml
